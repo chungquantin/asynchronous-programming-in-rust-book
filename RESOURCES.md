@@ -16,7 +16,8 @@ This crate provides an alternative implementation of a futures-based thread pool
 - https://tokio.rs/tokio/tutorial
 - https://docs.rs/tokio/latest/tokio/
 - https://docs.rs/rayon/latest/rayon/
-- https://ryhl.io/blog/async-what-is-blocking/#the-rayon-crate
+
+- https://ryhl.io/blog/async-what-is-blocking/#the-rayon-crate: the Tokio runtime was not able to swap one task for another, because such a swap can only happen at an .await. Since there is no .await in sleep_then_print, no swapping can happen while it is running.
 
 ### Goroutine
 
@@ -33,3 +34,7 @@ Because Goroutine is a stackful coroutine, which means it spawns its own stack t
 The CPU overhead averages about three cheap instructions per function call. It is practical to create hundreds of thousands of goroutines in the same address space. If goroutines were just threads, system resources would run out at a much smaller number.
 
 - https://osmh.dev/posts/goroutines-under-the-hood
+
+## RUST
+
+- https://d3s.mff.cuni.cz/teaching/nprg073/lecture_3/
