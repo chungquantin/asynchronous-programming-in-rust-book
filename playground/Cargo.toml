@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.80"
+libc = "0.2.153"
 polling = "3.5.0"
