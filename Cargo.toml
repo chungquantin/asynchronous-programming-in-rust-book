@@ -1,1 +1,7 @@
-workspace.members = ["delayserver", "playground"]
+workspace.members = [
+ "delayserver",
+ "fibers-playground",
+ "playground",
+ "ch05/*",
+ "ch07/*",
+]

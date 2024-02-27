@@ -148,19 +148,14 @@ unsafe extern "C" fn skip() {
     asm!("ret", options(noreturn))
 }
 
-
-fn guard() {
-    unsafe {
-        let rt_ptr = RUNTIME as *mut Runtime;
-        (*rt_ptr).t_return();
-    };
+unsafe fn guard() {
+    let rt_ptr = RUNTIME as *mut Runtime;
+    (*rt_ptr).t_return();
 }
 
-pub fn yield_thread() {
-    unsafe {
-        let rt_ptr = RUNTIME as *mut Runtime;
-        (*rt_ptr).t_yield();
-    };
+pub unsafe fn yield_thread() {
+    let rt_ptr = RUNTIME as *mut Runtime;
+    (*rt_ptr).t_yield();
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -183,7 +178,8 @@ unsafe extern "C" fn switch() {
         "mov r12, [rsi + 0x20]",
         "mov rbx, [rsi + 0x28]",
         "mov rbp, [rsi + 0x30]",
-        "ret", options(noreturn)
+        "ret",
+        options(noreturn)
     );
 }
 
@@ -262,7 +258,6 @@ impl Runtime {
             available.ctx.stack_end = available.stack.as_ptr() as u64;
         }
 
-
         available.state = State::Ready;
     }
 }
@@ -320,6 +315,7 @@ unsafe extern "C" fn switch() {
         "mov         gs:0x08, rax",
         "mov         rax, [rdx + 0xf0]",
         "mov         gs:0x10, rax",
-        "ret", options(noreturn)
+        "ret",
+        options(noreturn)
     );
 }

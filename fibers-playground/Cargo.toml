@@ -1,11 +1,8 @@
 [package]
-name = "playground"
+name = "fibers-playground"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.80"
-libc = "0.2.153"
-mio = { version = "0.8.10", features = ["net", "os-poll"] }

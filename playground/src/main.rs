@@ -1,15 +1,15 @@
-use std::{
-    io::{self, Read, Result, Write},
-    net::TcpStream,
-};
+use std::io::{self, Read, Result, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
-use ffi::{Event, EPOLLET, EPOLLIN};
-use poll::Poll;
+use mio::{net::TcpStream, Events, Interest, Poll, Token};
 
 // Module contains code related to the syscalls we need to communicate with the host OS
 mod ffi;
 // Module contains the main abstraction which is a thin layer over epoll
 mod poll;
+
+const CLIENT: Token = Token(1);
 
 fn get_req(path: &str) -> String {
     format!(
@@ -20,11 +20,11 @@ fn get_req(path: &str) -> String {
     )
 }
 
-fn handle_events(events: &[Event], streams: &mut [TcpStream]) -> Result<usize> {
+fn handle_events(events: &Events, streams: &mut [TcpStream]) -> Result<usize> {
     let mut handled_events = 0;
     for event in events {
         let index = event.token();
-        let mut stream = &streams[index];
+        let mut stream = &streams[index.0];
         let mut data = vec![0u8; 4096]; // 4 MB
         loop {
             match stream.read(&mut data) {
@@ -46,29 +46,32 @@ fn handle_events(events: &[Event], streams: &mut [TcpStream]) -> Result<usize> {
 }
 
 fn main() -> Result<()> {
-    let poll = Poll::new()?;
+    let mut poll = Poll::new()?;
     let n_events = 5;
-    let addr = "localhost:8080";
     let mut streams = vec![];
+
+    let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
     for i in 0..n_events {
         let delay = (n_events - i) * 1000;
         let url_path = format!("/{delay}/request-{i}");
         let request = get_req(&url_path);
 
-        let mut stream = std::net::TcpStream::connect(addr)?;
+        let mut client = TcpStream::connect(socket)?;
 
-        stream.set_nonblocking(true)?;
-        stream.write_all(request.as_bytes())?;
+        client.write_all(request.as_bytes())?;
 
-        poll.registry().register(&stream, i, EPOLLIN | EPOLLET)?;
+        poll.registry()
+            .register(&mut client, CLIENT, Interest::READABLE | Interest::WRITABLE)?;
 
-        streams.push(stream);
+        streams.push(client);
     }
 
     let mut handled_events = 0;
     while handled_events < n_events {
-        let mut events = Vec::with_capacity(10);
-        poll.poll(&mut events, None)?;
+        let mut events = Events::with_capacity(128);
+
+        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
 
         handled_events += handle_events(&events, &mut streams)?;
     }
