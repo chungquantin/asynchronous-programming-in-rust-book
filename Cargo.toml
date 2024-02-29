@@ -4,4 +4,5 @@ workspace.members = [
  "playground",
  "ch05/*",
  "ch07/*",
+ "link-checker",
 ]

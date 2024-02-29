@@ -1,5 +1,10 @@
-#![feature(naked_functions)]
+// #![feature(naked_functions)]
 use std::arch::asm;
+
+use crate::dining_philosophers::run_dining_philosophers;
+
+mod dining_philosophers;
+mod futures;
 
 const DEFAULT_STACK_SIZE: usize = 1024 * 1024 * 2; // 2MB
 const MAX_THREADS: usize = 4;
@@ -120,7 +125,7 @@ impl Runtime {
         unsafe {
             let old: *mut ThreadContext = &mut self.threads[old_pos].ctx;
             let new: *const ThreadContext = &self.threads[pos].ctx;
-            asm!("call switch", in("rdi") old, in("rsi") new, clobber_abi("C"));
+            // asm!("call switch", in("rdi") old, in("rsi") new, clobber_abi("C"));
         }
         false
     }
@@ -152,7 +157,7 @@ fn guard() {
     };
 }
 
-#[naked]
+// #[naked]
 unsafe extern "C" fn skip() {
     asm!("ret", options(noreturn))
 }
@@ -165,5 +170,5 @@ pub fn yield_thread() {
 }
 
 fn main() {
-    println!("Hello, world!");
+    run_dining_philosophers();
 }
