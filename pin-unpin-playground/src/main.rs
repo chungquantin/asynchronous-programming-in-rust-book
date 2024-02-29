@@ -1,7 +1,5 @@
 use std::{
     future::Future,
-    pin::Pin,
-    thread::sleep,
     time::{Duration, Instant},
 };
 
