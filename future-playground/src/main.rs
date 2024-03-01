@@ -1,3 +1,5 @@
+mod time_util;
+
 use std::{
     pin::Pin,
     sync::{
@@ -9,22 +11,26 @@ use std::{
 };
 
 use futures::{
-    future::BoxFuture,
     task::{waker_ref, ArcWake},
     Future,
 };
+use time_util::get_epoch_ms;
 
-type ArcTask = Arc<Task>;
+type ArcTask<Fut> = Arc<Task<Fut>>;
 
-struct Task {
-    future: Mutex<Option<BoxFuture<'static, ()>>>,
-    task_sender: SyncSender<ArcTask>,
+struct Task<Fut>
+where
+    Fut: Future + Send + 'static,
+{
+    future: Mutex<Option<Pin<Box<Fut>>>>,
+    task_sender: SyncSender<ArcTask<Fut>>,
 }
 
-impl ArcWake for Task {
+impl<Fut> ArcWake for Task<Fut>
+where
+    Fut: Future + Send + 'static,
+{
     fn wake_by_ref(arc_self: &Arc<Self>) {
-        // Implement `wake` by sending this task back onto the task channel
-        // so that it will be polled again by the executor.
         let cloned = arc_self.clone();
         arc_self
             .task_sender
@@ -34,16 +40,22 @@ impl ArcWake for Task {
 }
 
 #[derive(Clone)]
-struct Spawner {
-    task_sender: SyncSender<ArcTask>,
+struct Spawner<Fut>
+where
+    Fut: Future + Send + 'static,
+{
+    task_sender: SyncSender<ArcTask<Fut>>,
 }
 
-impl Spawner {
-    fn new(task_sender: SyncSender<ArcTask>) -> Self {
+impl<Fut> Spawner<Fut>
+where
+    Fut: Future + Send + 'static,
+{
+    fn new(task_sender: SyncSender<ArcTask<Fut>>) -> Self {
         Self { task_sender }
     }
 
-    fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) {
+    fn spawn(&self, future: Fut) {
         let future = Box::pin(future);
         let task = Task {
             future: Mutex::new(Some(future)),
@@ -53,47 +65,51 @@ impl Spawner {
     }
 }
 
-struct Executor {
-    ready_queue: mpsc::Receiver<ArcTask>,
+struct Executor<Fut>
+where
+    Fut: Future + Send + 'static,
+{
+    ready_queue: mpsc::Receiver<ArcTask<Fut>>,
 }
 
-impl Executor {
-    fn new(ready_queue: Receiver<ArcTask>) -> Self {
+impl<Fut> Executor<Fut>
+where
+    Fut: Future + Send + 'static,
+{
+    fn new(ready_queue: Receiver<ArcTask<Fut>>) -> Self {
         Self { ready_queue }
     }
 
     fn run(&self) {
+        let mut pending_tasks = 0;
         while let Ok(task) = self.ready_queue.recv() {
+            pending_tasks += 1;
             let waker = waker_ref(&task);
             let ctx = &mut Context::from_waker(&waker);
             let mut future_slot = task.future.lock().unwrap();
             if let Some(future) = future_slot.as_mut() {
                 if future.as_mut().poll(ctx).is_ready() {
-                    break;
+                    if pending_tasks == 0 {
+                        break;
+                    }
+                    pending_tasks -= 1;
                 }
             }
         }
     }
 }
 
-fn new_executor_and_spawner() -> (Executor, Spawner) {
-    // Maximum number of tasks to allow queueing in the channel at once.
-    // This is just to make `sync_channel` happy, and wouldn't be present in
-    // a real executor.
+fn new_executor_and_spawner<Fut>() -> (Executor<Fut>, Spawner<Fut>)
+where
+    Fut: Future + Send + 'static,
+{
     const MAX_QUEUED_TASKS: usize = 10_000;
     let (task_sender, ready_queue) = mpsc::sync_channel(MAX_QUEUED_TASKS);
     (Executor::new(ready_queue), Spawner::new(task_sender))
 }
 
-/// Shared state between the future and the waiting thread
 struct SharedState {
-    /// Whether or not the sleep time has elapsed
     completed: bool,
-
-    /// The waker for the task that `TimerFuture` is running on.
-    /// The thread can use this after setting `completed = true` to tell
-    /// `TimerFuture`'s task to wake up, see that `completed = true`, and
-    /// move forward.
     waker: Option<Waker>,
 }
 
@@ -113,8 +129,6 @@ impl TimerFuture {
         std::thread::spawn(move || {
             std::thread::sleep(sleep_time);
             let mut shared_state = thread_shared_state.lock().unwrap();
-            // Signal that the timer has completed and wake up the last
-            // task on which the future was polled, if one exists.
             shared_state.completed = true;
             if let Some(waker) = shared_state.waker.take() {
                 waker.wake()
@@ -138,23 +152,61 @@ impl Future for TimerFuture {
     }
 }
 
+struct TimedWrapper<Fut>
+where
+    Fut: Future,
+{
+    fut: Mutex<Pin<Box<Fut>>>,
+    start_time: u128,
+}
+
+impl<Fut> TimedWrapper<Fut>
+where
+    Fut: Future + Send + 'static,
+{
+    pub fn new(fut: Fut) -> Self {
+        TimedWrapper {
+            fut: Mutex::new(Box::pin(fut)),
+            start_time: get_epoch_ms(),
+        }
+    }
+}
+
+impl<Fut> Future for TimedWrapper<Fut>
+where
+    Fut: Future + Send + 'static,
+{
+    type Output = (Fut::Output, u128);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut guarded_future = self.fut.lock().unwrap();
+        let inner_future = guarded_future.as_mut();
+        let end_time = time_util::get_epoch_ms();
+        match inner_future.poll(cx) {
+            Poll::Ready(output) => Poll::Ready((output, end_time - self.start_time)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+async fn create_time_future_instance(second: u64) {
+    println!("howdy!");
+    TimerFuture::new(Duration::new(second, 0)).await;
+    println!("done!");
+}
+
+async fn create_time_wrapped_future_instance(second: u64) {
+    let (_, time) = TimedWrapper::new(create_time_future_instance(second)).await;
+    println!("timestamp: {:?}", time);
+}
+
 fn main() {
     let (executor, spawner) = new_executor_and_spawner();
 
-    // Spawn a task to print before and after waiting on a timer.
-    spawner.spawn(async {
-        println!("howdy!");
-        // Wait for our timer future to complete after two seconds.
-        TimerFuture::new(Duration::new(2, 0)).await;
-        TimerFuture::new(Duration::new(2, 0)).await;
-        println!("done!");
-    });
+    spawner.spawn(create_time_wrapped_future_instance(2));
+    spawner.spawn(create_time_wrapped_future_instance(4));
 
-    // Drop the spawner so that our executor knows it is finished and won't
-    // receive more incoming tasks to run.
     drop(spawner);
 
-    // Run the executor until the task queue is empty.
-    // This will print "howdy!", pause, and then print "done!".
     executor.run();
 }
