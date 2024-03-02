@@ -1,0 +1,10 @@
+[package]
+name = "runtime-playground"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+futures = "0.3.30"
+mio = { version = "0.8.11" }
+time = "0.3.34"
+tokio = { version = "1.36.0", features = ["full"] }
